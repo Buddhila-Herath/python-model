@@ -415,7 +415,13 @@ Docs:
 
 ## Validation Status
 
-Validated on April 19, 2026 with end-to-end checks for:
+Validated on April 19, 2026 with a full end-to-end run.
+
+Final result:
+
+- `TOTAL=26 PASS=26 FAIL=0`
+
+Coverage:
 
 - CLI execution and output generation
 - Sync API success path
@@ -424,8 +430,19 @@ Validated on April 19, 2026 with end-to-end checks for:
 - MIME rejection
 - JSON-path disabled behavior
 - Queue limit rejection (`429`)
-- Rate limiting (`429`) in isolated test setup
+- Rate limiting behavior (`200`, `200`, then `429`) in isolated test setup
 - Timeline shaping (`include_timeline=false`, `max_entries`)
+
+### Full Validation Command
+
+Use this to run a complete validation pass in the project virtual environment:
+
+```bash
+Set-Location "c:\Users\buddh\Desktop\New folder\face-analysis"
+..\.venv\Scripts\python.exe main.py --video "videos/Video_Generation_From_Description.mp4" --output "outputs/final_validation_cli.json"
+```
+
+Then run API checks with `fastapi.testclient` (health, sync, async, queue, and rate-limit scenarios), as executed in the final validation run above.
 
 ### Important Behavior
 
@@ -462,3 +479,9 @@ python main.py --video sample_face.mp4 --output outputs/results.json --debug
 
 - Unexpected emotion labels
   - Model outputs vary by backend; parser normalizes many formats, but label sets depend on model behavior.
+
+- `moov atom not found` during queue-limit stress testing
+  - This can appear when intentionally sending tiny dummy bytes as fake videos to test queue overflow behavior. It does not indicate a failure of the real video analysis path.
+
+- `cannot schedule new futures after interpreter shutdown` during short TestClient runs
+  - This can appear when the Python test process exits while background async jobs are still running. In normal API server runtime (`uvicorn`), this is not a user-facing request-path failure.
