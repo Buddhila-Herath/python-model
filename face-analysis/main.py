@@ -2,13 +2,10 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, List
+from typing import Dict
 
 from config import AppConfig
-from services.emotion_detector import EmotionDetector
-from services.face_detector import FaceDetector
-from services.scoring import compute_confidence_score, smooth_emotions
-from services.video_processor import VideoProcessor
+from services.analysis_service import analyze_video
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,46 +22,6 @@ def parse_args() -> argparse.Namespace:
         help="Enable verbose debug output",
     )
     return parser.parse_args()
-
-
-def run_pipeline(config: AppConfig) -> Dict[str, object]:
-    video_processor = VideoProcessor(target_fps=config.target_fps)
-    face_detector = FaceDetector(
-        min_detection_confidence=config.min_face_confidence,
-        debug=config.debug,
-    )
-    emotion_detector = EmotionDetector(debug=config.debug)
-
-    timeline: List[Dict[str, object]] = []
-
-    for frame_data in video_processor.iter_frames(config.video_path):
-        face_crop = face_detector.detect_and_crop(frame_data.frame)
-        if face_crop is None:
-            timeline.append(
-                {
-                    "time": frame_data.time_sec,
-                    "emotion": "NoFace",
-                    "emotion_confidence": 0.0,
-                }
-            )
-            continue
-
-        emotion, emotion_confidence = emotion_detector.predict(face_crop)
-        timeline.append(
-            {
-                "time": frame_data.time_sec,
-                "emotion": emotion,
-                "emotion_confidence": round(emotion_confidence, 4),
-            }
-        )
-
-    smoothed_timeline = smooth_emotions(timeline)
-    confidence_score = compute_confidence_score(smoothed_timeline)
-    return {
-        "timeline": smoothed_timeline,
-        "confidence_score": confidence_score,
-    }
-
 
 def save_output(data: Dict[str, object], output_path: str) -> None:
     output_dir = os.path.dirname(output_path)
@@ -83,7 +40,7 @@ def main() -> int:
         if not os.path.exists(config.video_path):
             raise FileNotFoundError(f"Video file not found: {config.video_path}")
 
-        result = run_pipeline(config)
+        result = analyze_video(config, include_summary=True)
         save_output(result, config.output_path)
 
         print(json.dumps(result, indent=2))

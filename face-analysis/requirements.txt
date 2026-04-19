@@ -2,3 +2,6 @@ opencv-python
 mediapipe
 hsemotion-onnx
 numpy
+fastapi
+uvicorn
+python-multipart
