@@ -40,6 +40,13 @@ def run_pipeline(config: AppConfig) -> Dict[str, object]:
     for frame_data in video_processor.iter_frames(config.video_path):
         face_crop = face_detector.detect_and_crop(frame_data.frame)
         if face_crop is None:
+            timeline.append(
+                {
+                    "time": frame_data.time_sec,
+                    "emotion": "NoFace",
+                    "emotion_confidence": 0.0,
+                }
+            )
             continue
 
         emotion, emotion_confidence = emotion_detector.predict(face_crop)
