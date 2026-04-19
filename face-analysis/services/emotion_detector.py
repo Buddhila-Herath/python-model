@@ -6,11 +6,14 @@ from hsemotion_onnx.facial_emotions import HSEmotionRecognizer
 
 
 class EmotionDetector:
-    def __init__(self, model_name: str = "enet_b0_8_best_afew") -> None:
+    def __init__(self, model_name: str = "enet_b0_8_best_afew", debug: bool = False) -> None:
         self.model = HSEmotionRecognizer(model_name=model_name)
+        self._debug = debug
 
     def predict(self, face_bgr: np.ndarray) -> Tuple[str, float]:
         prediction = self._run_model(face_bgr)
+        if self._debug:
+            print(f"Raw preds: {prediction}")
         emotion, confidence = self._parse_prediction(prediction)
         return emotion, confidence
 

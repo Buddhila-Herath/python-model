@@ -7,7 +7,7 @@ from typing import Dict, List
 from config import AppConfig
 from services.emotion_detector import EmotionDetector
 from services.face_detector import FaceDetector
-from services.scoring import compute_confidence_score
+from services.scoring import compute_confidence_score, smooth_emotions
 from services.video_processor import VideoProcessor
 
 
@@ -19,13 +19,21 @@ def parse_args() -> argparse.Namespace:
         default="outputs/results.json",
         help="Path for output JSON file (default: outputs/results.json)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose debug output",
+    )
     return parser.parse_args()
 
 
 def run_pipeline(config: AppConfig) -> Dict[str, object]:
     video_processor = VideoProcessor(target_fps=config.target_fps)
-    face_detector = FaceDetector(min_detection_confidence=config.min_face_confidence)
-    emotion_detector = EmotionDetector()
+    face_detector = FaceDetector(
+        min_detection_confidence=config.min_face_confidence,
+        debug=config.debug,
+    )
+    emotion_detector = EmotionDetector(debug=config.debug)
 
     timeline: List[Dict[str, object]] = []
 
@@ -43,9 +51,10 @@ def run_pipeline(config: AppConfig) -> Dict[str, object]:
             }
         )
 
-    confidence_score = compute_confidence_score(timeline)
+    smoothed_timeline = smooth_emotions(timeline)
+    confidence_score = compute_confidence_score(smoothed_timeline)
     return {
-        "timeline": timeline,
+        "timeline": smoothed_timeline,
         "confidence_score": confidence_score,
     }
 
@@ -61,7 +70,7 @@ def save_output(data: Dict[str, object], output_path: str) -> None:
 
 def main() -> int:
     args = parse_args()
-    config = AppConfig(video_path=args.video, output_path=args.output)
+    config = AppConfig(video_path=args.video, output_path=args.output, debug=args.debug)
 
     try:
         if not os.path.exists(config.video_path):

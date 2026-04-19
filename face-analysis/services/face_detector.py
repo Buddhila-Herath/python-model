@@ -16,11 +16,17 @@ class FaceDetector:
         "blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
     )
 
-    def __init__(self, min_detection_confidence: float = 0.5, padding_ratio: float = 0.1) -> None:
+    def __init__(
+        self,
+        min_detection_confidence: float = 0.5,
+        padding_ratio: float = 0.1,
+        debug: bool = False,
+    ) -> None:
         self.padding_ratio = padding_ratio
         self._mode = "solutions"
         self._detector: Any = None
         self._min_detection_confidence = min_detection_confidence
+        self._debug = debug
 
         if hasattr(mp, "solutions") and hasattr(mp.solutions, "face_detection"):
             self._mp_face_detection = mp.solutions.face_detection
@@ -86,6 +92,11 @@ class FaceDetector:
                 x2 = min(x1 + bw, w)
                 y2 = min(y1 + bh, h)
 
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(w, x2)
+                y2 = min(h, y2)
+
                 if x2 <= x1 or y2 <= y1:
                     continue
 
@@ -114,6 +125,11 @@ class FaceDetector:
             x2 = min(x1 + bw, w)
             y2 = min(y1 + bh, h)
 
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(w, x2)
+            y2 = min(h, y2)
+
             if x2 <= x1 or y2 <= y1:
                 continue
 
@@ -139,6 +155,11 @@ class FaceDetector:
         x2 = min(w, x2 + pad_x)
         y2 = min(h, y2 + pad_y)
 
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(w, x2)
+        y2 = min(h, y2)
+
         if x2 <= x1 or y2 <= y1:
             return None
 
@@ -151,4 +172,6 @@ class FaceDetector:
         bbox = self.detect_largest_face(frame_bgr)
         if bbox is None:
             return None
+        if self._debug:
+            print(f"Detected bbox: {bbox}")
         return self.crop_face(frame_bgr, bbox)
