@@ -82,10 +82,12 @@ face-analysis/
 - Stores app defaults such as:
   - `target_fps = 1`
   - `min_face_confidence = 0.5`
-- Defines emotion groups used by scoring:
+- Defines emotion groups and weights used by scoring:
   - Positive: `happy`
   - Neutral: `neutral`
+  - Surprise: `surprise` (special weighted category)
   - Negative: `fear`, `sad`, `angry`, `disgust`, `contempt`
+- Defines normalization aliases for model output labels (for example `happiness -> happy`).
 
 ### services/video_processor.py
 
@@ -108,9 +110,23 @@ face-analysis/
 
 - Runs HSEmotion ONNX model (`enet_b0_8_best_afew` by default)
 - Handles multiple output shapes/types from model APIs
-- Normalizes output to:
+- Normalizes output to canonical labels before storing in timeline:
   - `emotion` as title-cased string
   - `emotion_confidence` in range [0, 1]
+
+## Model Details
+
+- Model: `enet_b0_8_best_afew` (ONNX)
+- Trained on AffectNet / AFEW datasets
+- Output classes:
+  - Angry
+  - Disgust
+  - Fear
+  - Happy
+  - Neutral
+  - Sad
+  - Surprise
+  - Contempt
 
 ### services/scoring.py
 
@@ -118,8 +134,10 @@ face-analysis/
 - `compute_confidence_score`:
   - Positive contributes full weight
   - Neutral contributes half weight
+  - Surprise contributes weight `0.3`
   - Negative contributes zero
   - Applies penalty if negative ratio > 0.4
+  - Uses canonical label mapping to avoid mismatches (for example `Happiness` is counted as `happy`)
 
 ## Scoring Formula
 
@@ -128,12 +146,13 @@ Let:
 - `T` = total timeline entries
 - `P` = positive frames
 - `N` = neutral frames
+- `S` = surprise frames
 - `G` = negative frames
 
 Raw confidence:
 
 ```text
-confidence = (P + 0.5 * N) / T
+confidence = (P + 0.5 * N + 0.3 * S) / T
 ```
 
 Penalty rule:
@@ -148,6 +167,23 @@ Final score:
 ```text
 confidence_score = round(confidence * 100, 2)
 ```
+
+### Emotion Contribution Table
+
+The final score uses the smoothed timeline and applies these per-frame contributions:
+
+| Emotion group | Examples | Contribution per frame |
+| --- | --- | --- |
+| Positive | Happy, Happiness (via alias mapping) | 1.0 |
+| Neutral | Neutral | 0.5 |
+| Surprise | Surprise | 0.3 |
+| Negative | Fear, Sad, Angry, Disgust, Contempt | 0.0 |
+| Other/unknown | NoFace or any unmapped label | 0.0 |
+
+Notes:
+
+- Label aliases are normalized before scoring (for example, `Happiness -> happy`).
+- If negative frames are more than 40% of total frames, a 0.7 penalty multiplier is applied.
 
 ## Requirements
 
@@ -193,6 +229,8 @@ Debug mode (prints extra detector/model info):
 python main.py --video path/to/video.mp4 --output outputs/results.json --debug
 ```
 
+In debug mode, raw model predictions are printed to terminal as `Raw preds: ...` for easier label inspection.
+
 ## Output JSON Schema
 
 ```json
@@ -209,9 +247,27 @@ python main.py --video path/to/video.mp4 --output outputs/results.json --debug
       "emotion_confidence": 0.0
     }
   ],
+  "summary": {
+    "positive_ratio": 0.1,
+    "neutral_ratio": 0.8,
+    "negative_ratio": 0.1
+  },
   "confidence_score": 50.0
 }
 ```
+
+### Current vs. future output
+
+Current CLI output contains:
+
+```json
+{
+  "timeline": [...],
+  "confidence_score": 50.0
+}
+```
+
+For backend and analytics use cases, the response should grow to include a `summary` block with emotion ratios so dashboards and reports can use the data without reprocessing the full timeline.
 
 ### Important Behavior
 
@@ -248,3 +304,7 @@ python main.py --video sample_face.mp4 --output outputs/results.json --debug
 
 - Unexpected emotion labels
   - Model outputs vary by backend; parser normalizes many formats, but label sets depend on model behavior.
+
+## Backend Roadmap
+
+See [BACKEND_API_TODO.md](BACKEND_API_TODO.md) for the step-by-step plan to convert this CLI into a FastAPI service.

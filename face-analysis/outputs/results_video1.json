@@ -1,0 +1,45 @@
+{
+  "timeline": [
+    {
+      "time": 0,
+      "emotion": "Surprise",
+      "emotion_confidence": 0.5592
+    },
+    {
+      "time": 1,
+      "emotion": "Surprise",
+      "emotion_confidence": 0.3369
+    },
+    {
+      "time": 2,
+      "emotion": "Surprise",
+      "emotion_confidence": 0.2528
+    },
+    {
+      "time": 3,
+      "emotion": "Surprise",
+      "emotion_confidence": 0.2697
+    },
+    {
+      "time": 4,
+      "emotion": "Neutral",
+      "emotion_confidence": 0.2828
+    },
+    {
+      "time": 5,
+      "emotion": "Surprise",
+      "emotion_confidence": 0.4474
+    },
+    {
+      "time": 6,
+      "emotion": "Happy",
+      "emotion_confidence": 0.3452
+    },
+    {
+      "time": 7,
+      "emotion": "Happy",
+      "emotion_confidence": 0.9068
+    }
+  ],
+  "confidence_score": 50.0
+}

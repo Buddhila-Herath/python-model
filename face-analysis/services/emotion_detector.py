@@ -2,6 +2,7 @@ from typing import Any, Iterable, List, Optional, Tuple
 
 import numpy as np
 
+from config import canonical_emotion_label
 from hsemotion_onnx.facial_emotions import HSEmotionRecognizer
 
 
@@ -129,7 +130,8 @@ class EmotionDetector:
     def _normalize_emotion(emotion: Any) -> str:
         if emotion is None:
             return "Unknown"
-        return str(emotion).strip().title()
+        canonical = canonical_emotion_label(str(emotion))
+        return canonical.title()
 
     @staticmethod
     def _normalize_confidence(confidence: Any) -> float:

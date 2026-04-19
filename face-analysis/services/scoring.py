@@ -1,7 +1,15 @@
 from collections import Counter
 from typing import Dict, List
 
-from config import NEGATIVE_EMOTIONS, NEUTRAL_EMOTIONS, POSITIVE_EMOTIONS
+from config import (
+    NEGATIVE_EMOTIONS,
+    NEUTRAL_WEIGHT,
+    NEUTRAL_EMOTIONS,
+    POSITIVE_EMOTIONS,
+    SURPRISE_EMOTIONS,
+    SURPRISE_WEIGHT,
+    canonical_emotion_label,
+)
 
 
 def smooth_emotions(timeline: List[Dict[str, object]], window: int = 3) -> List[Dict[str, object]]:
@@ -29,18 +37,25 @@ def compute_confidence_score(timeline: List[Dict[str, object]]) -> float:
 
     positive_frames = 0
     neutral_frames = 0
+    surprise_frames = 0
     negative_frames = 0
 
     for item in timeline:
-        emotion = str(item.get("emotion", "")).strip().lower()
+        emotion = canonical_emotion_label(str(item.get("emotion", "")))
         if emotion in POSITIVE_EMOTIONS:
             positive_frames += 1
         if emotion in NEUTRAL_EMOTIONS:
             neutral_frames += 1
+        if emotion in SURPRISE_EMOTIONS:
+            surprise_frames += 1
         if emotion in NEGATIVE_EMOTIONS:
             negative_frames += 1
 
-    confidence = (positive_frames + 0.5 * neutral_frames) / total_frames
+    confidence = (
+        positive_frames
+        + NEUTRAL_WEIGHT * neutral_frames
+        + SURPRISE_WEIGHT * surprise_frames
+    ) / total_frames
     negative_ratio = negative_frames / total_frames
 
     if negative_ratio > 0.4:
