@@ -1,7 +1,11 @@
 import os
 import tempfile
 import uuid
+from collections import deque
+import logging
 from pathlib import Path
+from threading import Lock
+from time import time
 from typing import Any
 
 from fastapi import APIRouter, Request, status
@@ -9,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from api.job_store import can_accept_new_job, create_job, get_job, set_completed, set_failed, set_running, submit
+from api.job_store import JobExecutionError, enqueue_job, get_job_snapshot, get_queue_metrics
 from api.models import (
     AnalyzeAsyncAcceptedResponse,
     AnalyzeJobResponse,
@@ -21,11 +25,17 @@ from config import AppConfig
 from services.analysis_service import analyze_video
 
 
-router = APIRouter()
-SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
+router = APIRouter(prefix="/api/v1")
+logger = logging.getLogger(__name__)
+SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov"}
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MAX_SIZE_MB = 200
 MAX_UPLOAD_BYTES = MAX_SIZE_MB * 1024 * 1024
+ALLOW_JSON_PATH = False
+RATE_LIMIT = 20
+WINDOW_SECONDS = 60
+_RATE_LOCK = Lock()
+_REQUESTS_BY_IP: dict[str, deque[float]] = {}
 
 
 def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
@@ -46,6 +56,27 @@ def _validate_extension(file_path: str) -> None:
 def _validate_file_size(file_size_bytes: int) -> None:
     if file_size_bytes > MAX_UPLOAD_BYTES:
         raise OverflowError(f"File too large. Maximum allowed size is {MAX_SIZE_MB}MB")
+
+
+def _check_rate_limit(request: Request) -> JSONResponse | None:
+    now = time()
+    client_host = request.client.host if request.client else "unknown"
+
+    with _RATE_LOCK:
+        request_times = _REQUESTS_BY_IP.setdefault(client_host, deque())
+        while request_times and (now - request_times[0]) > WINDOW_SECONDS:
+            request_times.popleft()
+
+        if len(request_times) >= RATE_LIMIT:
+            return _error_response(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "rate_limited",
+                f"Rate limit exceeded: {RATE_LIMIT} requests per {WINDOW_SECONDS} seconds",
+            )
+
+        request_times.append(now)
+
+    return None
 
 
 def _validate_json_video_path(video_path: str) -> str:
@@ -93,6 +124,20 @@ async def _extract_input_video(request: Request) -> tuple[str | None, str | None
                 ),
             )
 
+        # Content-Type is a practical first-line check, but it can be spoofed.
+        # For stricter validation in production, add magic-byte/header inspection.
+        uploaded_content_type = (getattr(uploaded_file, "content_type", "") or "").lower()
+        if not uploaded_content_type.startswith("video/"):
+            return (
+                None,
+                None,
+                _error_response(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "invalid_request",
+                    f"Invalid MIME type '{uploaded_content_type}'. Expected a video/* content type.",
+                ),
+            )
+
         original_name = getattr(uploaded_file, "filename", "") or "uploaded_video"
         _validate_extension(original_name)
 
@@ -129,6 +174,17 @@ async def _extract_input_video(request: Request) -> tuple[str | None, str | None
             tmp.write(file_bytes)
 
         return temp_file_path, temp_file_path, None
+
+    if not ALLOW_JSON_PATH:
+        return (
+            None,
+            None,
+            _error_response(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "invalid_request",
+                "JSON video_path disabled",
+            ),
+        )
 
     try:
         body = await request.json()
@@ -167,48 +223,98 @@ def _run_analysis(video_path: str) -> dict:
     return analyze_video(AppConfig(video_path=video_path), include_summary=True)
 
 
-def _run_analysis_job(job_id: str, input_video_path: str, temp_file_path: str | None) -> None:
-    try:
-        if not os.path.exists(input_video_path):
-            raise FileNotFoundError(f"Video file not found: {input_video_path}")
+def _build_job_runner(input_video_path: str, temp_file_path: str | None):
+    def _runner() -> dict:
+        try:
+            if not os.path.exists(input_video_path):
+                raise JobExecutionError("missing_file", f"Video file not found: {input_video_path}")
 
-        result = _run_analysis(input_video_path)
-        if not result.get("timeline"):
-            raise ValueError("Analysis completed but timeline is empty.")
+            result = _run_analysis(input_video_path)
+            if not result.get("timeline"):
+                raise JobExecutionError("invalid_request", "Analysis completed but timeline is empty.")
 
-        set_completed(job_id, result)
+            return result
+        except JobExecutionError:
+            raise
+        except OverflowError as exc:
+            raise JobExecutionError("file_too_large", str(exc)) from exc
+        except ValueError as exc:
+            raise JobExecutionError("invalid_request", str(exc)) from exc
+        except RuntimeError as exc:
+            raise JobExecutionError("inference_error", str(exc)) from exc
+        finally:
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                except OSError:
+                    pass
 
-    except FileNotFoundError as exc:
-        set_failed(job_id, "missing_file", str(exc))
-    except ValueError as exc:
-        message = str(exc)
-        code = "empty_timeline" if "timeline is empty" in message else "unsupported_format"
-        set_failed(job_id, code, message)
-    except RuntimeError as exc:
-        set_failed(job_id, "inference_failure", str(exc))
-    except Exception as exc:
-        set_failed(job_id, "internal_error", f"Unexpected server error: {exc}")
-    finally:
-        if temp_file_path and os.path.exists(temp_file_path):
-            try:
-                os.remove(temp_file_path)
-            except OSError:
-                pass
+    return _runner
+
+
+def _project_result(
+    result: dict,
+    include_timeline: bool,
+    max_entries: int | None,
+) -> dict:
+    projected = {
+        "summary": result.get("summary"),
+        "confidence_score": result.get("confidence_score"),
+        "truncated": False,
+    }
+
+    timeline = list(result.get("timeline", []))
+
+    if not include_timeline:
+        return projected
+
+    if max_entries is not None and max_entries >= 0 and len(timeline) > max_entries:
+        projected["timeline"] = timeline[:max_entries]
+        projected["truncated"] = True
+        return projected
+
+    projected["timeline"] = timeline
+    return projected
+
+
+@router.get("/health")
+async def health(request: Request) -> Any:
+    rate_error = _check_rate_limit(request)
+    if rate_error is not None:
+        return rate_error
+
+    metrics = get_queue_metrics()
+    logger.info("Health check: active_jobs=%s pending_jobs=%s", metrics["active_jobs"], metrics["pending_jobs"])
+    return {
+        "status": "ok",
+        "active_jobs": metrics["active_jobs"],
+        "pending_jobs": metrics["pending_jobs"],
+    }
 
 
 @router.post(
     "/analyze",
     response_model=AnalyzeResponse,
+    response_model_exclude_none=True,
     responses={
         400: {"model": ErrorResponse},
         413: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
         415: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
     },
 )
-async def analyze(request: Request) -> Any:
+async def analyze(
+    request: Request,
+    include_timeline: bool = True,
+    max_entries: int | None = None,
+) -> Any:
+    rate_error = _check_rate_limit(request)
+    if rate_error is not None:
+        return rate_error
+
     input_video_path: str | None = None
     temp_file_path: str | None = None
 
@@ -229,11 +335,11 @@ async def analyze(request: Request) -> Any:
         if not result.get("timeline"):
             return _error_response(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "empty_timeline",
+                "invalid_request",
                 "Analysis completed but timeline is empty.",
             )
 
-        return result
+        return _project_result(result, include_timeline=include_timeline, max_entries=max_entries)
 
     except PermissionError as exc:
         return _error_response(
@@ -250,13 +356,13 @@ async def analyze(request: Request) -> Any:
     except ValueError as exc:
         return _error_response(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            "unsupported_format",
+            "invalid_request",
             str(exc),
         )
     except RuntimeError as exc:
         return _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
-            "inference_failure",
+            "inference_error",
             str(exc),
         )
     except Exception as exc:
@@ -288,6 +394,10 @@ async def analyze(request: Request) -> Any:
     },
 )
 async def analyze_async(request: Request) -> Any:
+    rate_error = _check_rate_limit(request)
+    if rate_error is not None:
+        return rate_error
+
     try:
         input_video_path, temp_file_path, early_response = await _extract_input_video(request)
         if early_response is not None:
@@ -300,7 +410,9 @@ async def analyze_async(request: Request) -> Any:
                 f"Video file not found: {input_video_path}",
             )
 
-        if not can_accept_new_job():
+        job_id = str(uuid.uuid4())
+        accepted, status_name = enqueue_job(job_id, _build_job_runner(input_video_path, temp_file_path))
+        if not accepted:
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.remove(temp_file_path)
@@ -309,35 +421,18 @@ async def analyze_async(request: Request) -> Any:
             return _error_response(
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 "too_many_jobs",
-                "Too many active jobs. Try again later.",
+                "Too many jobs in processing/queue. Try again later.",
             )
 
-        job_id = str(uuid.uuid4())
-        create_job(job_id)
-        try:
-            future = submit(_run_analysis_job, job_id, input_video_path, temp_file_path)
-            set_running(job_id, future)
-        except Exception as exc:
-            set_failed(job_id, "internal_error", f"Failed to start job: {exc}")
-            if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.remove(temp_file_path)
-                except OSError:
-                    pass
-            return _error_response(
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-                "internal_error",
-                f"Failed to start job: {exc}",
-            )
-
-        return {"job_id": job_id, "status": "pending"}
+        logger.info("Async job accepted: job_id=%s status=%s", job_id, status_name)
+        return {"job_id": job_id, "status": status_name}
 
     except PermissionError as exc:
         return _error_response(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid_request", str(exc))
     except OverflowError as exc:
         return _error_response(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "file_too_large", str(exc))
     except ValueError as exc:
-        return _error_response(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "unsupported_format", str(exc))
+        return _error_response(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "invalid_request", str(exc))
     except Exception as exc:
         return _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -349,17 +444,40 @@ async def analyze_async(request: Request) -> Any:
 @router.get(
     "/analyze/jobs/{job_id}",
     response_model=AnalyzeJobResponse,
-    responses={404: {"model": ErrorResponse}},
+    response_model_exclude_none=True,
+    responses={404: {"model": ErrorResponse}, 429: {"model": ErrorResponse}},
 )
-async def analyze_job_status(job_id: str) -> Any:
-    job = get_job(job_id)
-    if job is None:
+async def analyze_job_status(
+    request: Request,
+    job_id: str,
+    include_timeline: bool = True,
+    max_entries: int | None = None,
+) -> Any:
+    rate_error = _check_rate_limit(request)
+    if rate_error is not None:
+        return rate_error
+
+    snapshot = get_job_snapshot(job_id)
+    if snapshot is None:
         return _error_response(status.HTTP_404_NOT_FOUND, "job_not_found", f"Job not found: {job_id}")
+
+    result_payload = snapshot.get("result")
+    projected_result = None
+    if isinstance(result_payload, dict):
+        projected_result = _project_result(
+            result_payload,
+            include_timeline=include_timeline,
+            max_entries=max_entries,
+        )
 
     return {
         "job_id": job_id,
-        "status": job.status,
-        "result": job.result,
-        "error": job.error,
-        "code": job.code,
+        "status": snapshot.get("status"),
+        "created_at": snapshot.get("created_at"),
+        "started_at": snapshot.get("started_at"),
+        "completed_at": snapshot.get("completed_at"),
+        "duration": snapshot.get("duration"),
+        "result": projected_result,
+        "error": snapshot.get("error"),
+        "code": snapshot.get("code"),
     }

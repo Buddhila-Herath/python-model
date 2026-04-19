@@ -19,9 +19,10 @@ class SummaryResponse(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
-    timeline: list[TimelineItem]
+    timeline: list[TimelineItem] | None = None
     summary: SummaryResponse
     confidence_score: float
+    truncated: bool = False
 
 
 class ErrorResponse(BaseModel):
@@ -37,6 +38,10 @@ class AnalyzeAsyncAcceptedResponse(BaseModel):
 class AnalyzeJobResponse(BaseModel):
     job_id: str
     status: Literal["pending", "processing", "completed", "failed"]
+    created_at: float
+    started_at: float | None = None
+    completed_at: float | None = None
+    duration: float | None = None
     result: AnalyzeResponse | None = None
     error: str | None = None
     code: str | None = None
