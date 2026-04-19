@@ -36,6 +36,7 @@ RATE_LIMIT = 20
 WINDOW_SECONDS = 60
 _RATE_LOCK = Lock()
 _REQUESTS_BY_IP: dict[str, deque[float]] = {}
+_RATE_CONFIG_SNAPSHOT = (RATE_LIMIT, WINDOW_SECONDS)
 
 
 def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
@@ -59,10 +60,16 @@ def _validate_file_size(file_size_bytes: int) -> None:
 
 
 def _check_rate_limit(request: Request) -> JSONResponse | None:
+    global _RATE_CONFIG_SNAPSHOT
     now = time()
     client_host = request.client.host if request.client else "unknown"
 
     with _RATE_LOCK:
+        current_config = (RATE_LIMIT, WINDOW_SECONDS)
+        if current_config != _RATE_CONFIG_SNAPSHOT:
+            _REQUESTS_BY_IP.clear()
+            _RATE_CONFIG_SNAPSHOT = current_config
+
         request_times = _REQUESTS_BY_IP.setdefault(client_host, deque())
         while request_times and (now - request_times[0]) > WINDOW_SECONDS:
             request_times.popleft()

@@ -1,12 +1,14 @@
-# Face Analysis CLI
+# Face Analysis (CLI + FastAPI)
 
-This project analyzes a video and produces a per-second facial emotion timeline plus a final confidence score.
+This project analyzes a video and produces a per-second facial emotion timeline, summary ratios, and a final confidence score.
 
 It is fully local (CPU), command-line based, and built with:
 
 - OpenCV for video decoding
 - MediaPipe for face detection
 - hsemotion-onnx for emotion inference
+
+It also includes a FastAPI backend with sync and async processing endpoints.
 
 ## What This System Does
 
@@ -53,6 +55,11 @@ save_output(...) + print JSON
 
 ```text
 face-analysis/
+  api/
+    app.py
+    routes.py
+    models.py
+    job_store.py
   config.py
   main.py
   create_sample_video.py
@@ -61,6 +68,7 @@ face-analysis/
   outputs/
     results.json
   services/
+    analysis_service.py
     video_processor.py
     face_detector.py
     emotion_detector.py
@@ -76,6 +84,40 @@ face-analysis/
 - Runs the pipeline
 - Saves and prints results
 - Handles errors (missing file / runtime failure)
+
+### services/analysis_service.py
+
+- Shared analysis entry point used by both CLI and API.
+- Builds summary ratios:
+  - `positive_ratio`
+  - `neutral_ratio`
+  - `negative_ratio`
+- Keeps core ML pipeline reusable and centralized.
+
+### api/app.py
+
+- FastAPI app bootstrap.
+- Starts a background cleanup loop on startup.
+- Configures logging format for API and job lifecycle traces.
+
+### api/routes.py
+
+- Versioned API routes under `/api/v1`.
+- Sync endpoint: `POST /api/v1/analyze`
+- Async endpoints:
+  - `POST /api/v1/analyze/async`
+  - `GET /api/v1/analyze/jobs/{job_id}`
+- Health endpoint: `GET /api/v1/health`
+- Request controls:
+  - `include_timeline` (default true)
+  - `max_entries` (optional timeline truncation)
+
+### api/job_store.py
+
+- Thread-safe in-memory queue + job state manager.
+- FIFO pending queue.
+- Concurrency, queue limit, timeout, and TTL cleanup.
+- Job metadata tracking (`created_at`, `started_at`, `completed_at`, `duration`).
 
 ### config.py
 
@@ -233,6 +275,8 @@ In debug mode, raw model predictions are printed to terminal as `Raw preds: ...`
 
 ## Output JSON Schema
 
+CLI output:
+
 ```json
 {
   "timeline": [
@@ -256,18 +300,132 @@ In debug mode, raw model predictions are printed to terminal as `Raw preds: ...`
 }
 ```
 
-### Current vs. future output
+## FastAPI API
 
-Current CLI output contains:
+Base path: `/api/v1`
+
+### Endpoints
+
+- `GET /api/v1/health`
+- `POST /api/v1/analyze`
+- `POST /api/v1/analyze/async`
+- `GET /api/v1/analyze/jobs/{job_id}`
+
+### Sync analyze request
+
+- Content type: `multipart/form-data`
+- Required file field: `file`
+- Query params:
+  - `include_timeline` (bool, default true)
+  - `max_entries` (int, optional)
+
+### Async analyze response
 
 ```json
 {
-  "timeline": [...],
-  "confidence_score": 50.0
+  "job_id": "uuid",
+  "status": "pending"
 }
 ```
 
-For backend and analytics use cases, the response should grow to include a `summary` block with emotion ratios so dashboards and reports can use the data without reprocessing the full timeline.
+Job statuses:
+
+- `pending`
+- `processing`
+- `completed`
+- `failed`
+
+### Async job status response
+
+```json
+{
+  "job_id": "uuid",
+  "status": "completed",
+  "created_at": 1776620819.754,
+  "started_at": 1776620819.754,
+  "completed_at": 1776620820.312,
+  "duration": 0.558,
+  "result": {
+    "summary": {
+      "positive_ratio": 0.25,
+      "neutral_ratio": 0.5,
+      "negative_ratio": 0.0
+    },
+    "confidence_score": 55.0,
+    "timeline": [],
+    "truncated": false
+  }
+}
+```
+
+Failed jobs include:
+
+```json
+{
+  "status": "failed",
+  "error": "message",
+  "code": "inference_error"
+}
+```
+
+### Error contract (all endpoints)
+
+```json
+{
+  "error": "message",
+  "code": "ERROR_TYPE"
+}
+```
+
+Common codes:
+
+- `invalid_request`
+- `missing_file`
+- `file_too_large`
+- `too_many_jobs`
+- `rate_limited`
+- `inference_error`
+- `job_timeout`
+
+## Backend Guards and Limits
+
+- Allowed file extensions: `.mp4`, `.avi`, `.mov`
+- MIME check: must be `video/*`
+- Max upload size: `200MB`
+- JSON path mode: disabled by default (`ALLOW_JSON_PATH = False`)
+- Rate limit: `20 requests / 60 seconds` per IP (in-memory)
+- Queue model:
+  - max processing: `2`
+  - max pending: `10`
+  - FIFO scheduling
+- Max job runtime: `300` seconds
+- TTL cleanup for completed/failed jobs: `15` minutes
+
+Note: MIME check is a practical first filter and can be spoofed; stricter production validation can add magic-byte inspection.
+
+## Run API
+
+```bash
+uvicorn api.app:app --reload --host 0.0.0.0 --port 8000
+```
+
+Docs:
+
+- `http://127.0.0.1:8000/docs`
+
+## Validation Status
+
+Validated on April 19, 2026 with end-to-end checks for:
+
+- CLI execution and output generation
+- Sync API success path
+- Async job submit/poll lifecycle
+- Job metadata (`created_at`, `started_at`, `completed_at`, `duration`)
+- MIME rejection
+- JSON-path disabled behavior
+- Queue limit rejection (`429`)
+- Rate limiting (`429`) in isolated test setup
+- Timeline shaping (`include_timeline=false`, `max_entries`)
 
 ### Important Behavior
 
@@ -304,7 +462,3 @@ python main.py --video sample_face.mp4 --output outputs/results.json --debug
 
 - Unexpected emotion labels
   - Model outputs vary by backend; parser normalizes many formats, but label sets depend on model behavior.
-
-## Backend Roadmap
-
-See [BACKEND_API_TODO.md](BACKEND_API_TODO.md) for the step-by-step plan to convert this CLI into a FastAPI service.
