@@ -1,0 +1,58 @@
+{
+  "timeline": [
+    {
+      "time": 0,
+      "emotion": "neutral",
+      "emotion_confidence": 0.7645,
+      "valid": true
+    },
+    {
+      "time": 1,
+      "emotion": "neutral",
+      "emotion_confidence": 0.7392,
+      "valid": true
+    },
+    {
+      "time": 2,
+      "emotion": "neutral",
+      "emotion_confidence": 0.7483,
+      "valid": true
+    },
+    {
+      "time": 3,
+      "emotion": "neutral",
+      "emotion_confidence": 0.7647,
+      "valid": true
+    },
+    {
+      "time": 4,
+      "emotion": "neutral",
+      "emotion_confidence": 0.7516,
+      "valid": true
+    },
+    {
+      "time": 5,
+      "emotion": "neutral",
+      "emotion_confidence": 0.7632,
+      "valid": true
+    },
+    {
+      "time": 6,
+      "emotion": "neutral",
+      "emotion_confidence": 0.718,
+      "valid": true
+    },
+    {
+      "time": 7,
+      "emotion": "neutral",
+      "emotion_confidence": 0.7296,
+      "valid": true
+    }
+  ],
+  "confidence_score": 60.0,
+  "summary": {
+    "positive_ratio": 0.0,
+    "neutral_ratio": 1.0,
+    "negative_ratio": 0.0
+  }
+}

@@ -16,6 +16,14 @@ class FaceDetector:
         "blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
     )
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._detector is not None:
+            self._detector.close()
+            self._detector = None
+
     def __init__(
         self,
         min_detection_confidence: float = 0.5,
@@ -40,11 +48,6 @@ class FaceDetector:
         self._mode = "tasks"
         self._tasks_model_path = self._ensure_tasks_model()
         self._detector = self._build_tasks_detector(min_detection_confidence)
-
-    def __del__(self) -> None:
-        detector = getattr(self, "_detector", None)
-        if detector is not None:
-            detector.close()
 
     def _ensure_tasks_model(self) -> str:
         model_dir = Path(__file__).resolve().parent.parent / ".models"

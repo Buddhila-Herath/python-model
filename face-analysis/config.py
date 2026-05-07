@@ -21,7 +21,6 @@ EMOTION_ALIASES = {
 
 
 NEUTRAL_WEIGHT: float = 0.5
-SURPRISE_WEIGHT: float = 0.3
 
 
 def canonical_emotion_label(emotion: str) -> str:
@@ -35,6 +34,7 @@ class AppConfig:
     output_path: str = "outputs/results.json"
     target_fps: int = 1
     min_face_confidence: float = 0.5
+    gaze_threshold: float = 0.04
     positive_emotions: Set[str] = field(default_factory=lambda: set(POSITIVE_EMOTIONS))
     neutral_emotions: Set[str] = field(default_factory=lambda: set(NEUTRAL_EMOTIONS))
     surprise_emotions: Set[str] = field(default_factory=lambda: set(SURPRISE_EMOTIONS))

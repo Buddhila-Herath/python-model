@@ -1,0 +1,459 @@
+
+<h2 class="sr-only">Facial Expression Recognition & Viva Scoring Simulator — interactive demo showing emotion detection, engagement and confidence scoring in real time.</h2>
+
+<style>
+.panel { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; }
+.metric-card { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: .875rem 1rem; }
+.label { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 4px; letter-spacing: .04em; text-transform: uppercase; }
+.big-num { font-size: 28px; font-weight: 500; margin: 0; color: var(--color-text-primary); line-height: 1; }
+.emo-label { font-size: 13px; color: var(--color-text-secondary); min-width: 64px; }
+.emo-track { flex: 1; background: var(--color-background-secondary); border-radius: 3px; height: 8px; overflow: hidden; }
+.emo-fill { height: 100%; border-radius: 3px; transition: width .5s cubic-bezier(.4,0,.2,1); }
+.emo-val { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); min-width: 36px; text-align: right; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: var(--border-radius-md); font-weight: 500; }
+.score-ring { position: relative; display: flex; align-items: center; justify-content: center; }
+.signal-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 13px; }
+.signal-row:last-child { border-bottom: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.timeline-bar { width: 12px; border-radius: 2px 2px 0 0; transition: height .4s ease, background .4s ease; align-self: flex-end; }
+.state-btn { font-size: 12px; padding: 5px 10px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); color: var(--color-text-secondary); cursor: pointer; transition: all .15s; }
+.state-btn:hover { background: var(--color-background-secondary); color: var(--color-text-primary); }
+.state-btn.active { background: var(--color-background-info); color: var(--color-text-info); border-color: var(--color-border-info); }
+</style>
+
+  <div style="padding:.25rem 0 1.5rem; display:flex; flex-direction:column; gap:12px;">
+
+  <div class="panel" style="padding: .9rem 1rem;">
+    <p style="font-size:13px; font-weight:500; margin:0 0 .6rem; color:var(--color-text-primary);">Upload a video (drag & drop or select file)</p>
+
+    <div id="dropzone"
+         style="border:1px dashed var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 14px; text-align:center; background: var(--color-background-secondary); cursor:pointer;">
+      <div style="font-size:13px; color:var(--color-text-secondary);">Drop video here</div>
+      <div style="margin-top:8px; display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
+        <button class="state-btn" type="button" onclick="document.getElementById('video-file').click();" id="btn-choose">Choose video</button>
+        <span id="selected-file" style="font-size:12px; color:var(--color-text-secondary);">No file selected</span>
+      </div>
+    </div>
+
+    <input id="video-file" type="file" accept="video/*" style="display:none;" />
+
+    <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; align-items:center;">
+      <input id="api-url" placeholder="API base URL (e.g. http://localhost:8000)" style="flex:1; min-width:280px; padding:10px 12px; border-radius:var(--border-radius-md); border:0.5px solid var(--color-border-secondary); background:var(--color-background-primary); color:var(--color-text-primary);" />
+      <button class="state-btn" type="button" onclick="checkAPIHealth()">Check API</button>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+      <button class="state-btn active" type="button" onclick="analyzeVideoAsync()" id="btn-analyze-async">Analyze (async)</button>
+      <button class="state-btn" type="button" onclick="analyzeVideo()">Analyze (sync)</button>
+      <span id="job-status" style="display:none; font-size:12px; color:var(--color-text-secondary);">Status: <span id="job-status-text">pending</span></span>
+    </div>
+
+    <div id="api-status" style="margin-top:10px; font-size:12px; color:var(--color-text-secondary); display:flex; align-items:center; gap:8px;">
+      <span class="dot" style="background:#666;"></span>
+      <span>Idle</span>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+
+    <span style="font-size:13px; color:var(--color-text-secondary); margin-right:4px;">Simulate student state:</span>
+    <button class="state-btn active" onclick="setScenario('confident')" id="btn-confident">Confident</button>
+    <button class="state-btn" onclick="setScenario('anxious')" id="btn-anxious">Anxious</button>
+    <button class="state-btn" onclick="setScenario('disengaged')" id="btn-disengaged">Disengaged</button>
+    <button class="state-btn" onclick="setScenario('decline')" id="btn-decline">Confidence decline</button>
+    <button class="state-btn" onclick="togglePlay()" id="play-btn" style="margin-left:auto; border-color:var(--color-border-primary); color:var(--color-text-primary);">
+      <i class="ti ti-player-play" aria-hidden="true"></i> Play session
+    </button>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px;">
+    <div class="metric-card">
+      <p class="label">Engagement</p>
+      <p class="big-num" id="eng-score" style="color:#1D9E75">74</p>
+      <p style="font-size:11px;color:var(--color-text-secondary);margin:4px 0 0;">/ 100 · 15% weight</p>
+    </div>
+    <div class="metric-card">
+      <p class="label">Confidence (face)</p>
+      <p class="big-num" id="conf-score" style="color:#378ADD">81</p>
+      <p style="font-size:11px;color:var(--color-text-secondary);margin:4px 0 0;">/ 100 · feeds 15%</p>
+    </div>
+    <div class="metric-card">
+      <p class="label">Dominant emotion</p>
+      <p class="big-num" id="dom-emo" style="font-size:18px; padding-top:4px;">Neutral</p>
+      <span class="badge" id="dom-badge" style="background:var(--color-background-success);color:var(--color-text-success);margin-top:4px;display:inline-block;">Positive signal</span>
+    </div>
+    <div class="metric-card">
+      <p class="label">Blink rate</p>
+      <p class="big-num" id="blink-num">14</p>
+      <p style="font-size:11px;color:var(--color-text-secondary);margin:4px 0 0;">per min · normal</p>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+
+    <div class="panel">
+      <p style="font-size:13px; font-weight:500; margin:0 0 .875rem; color:var(--color-text-primary);">7-class emotion detection</p>
+      <div style="display:flex;flex-direction:column;gap:8px;" id="emo-bars">
+        <div style="display:flex;align-items:center;gap:8px;"><span class="emo-label">Neutral</span><div class="emo-track"><div class="emo-fill" id="bar-neutral" style="width:76%;background:#1D9E75;"></div></div><span class="emo-val" id="val-neutral">76%</span></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span class="emo-label">Happy</span><div class="emo-track"><div class="emo-fill" id="bar-happy" style="width:12%;background:#378ADD;"></div></div><span class="emo-val" id="val-happy">12%</span></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span class="emo-label">Surprise</span><div class="emo-track"><div class="emo-fill" id="bar-surprise" style="width:5%;background:#EF9F27;"></div></div><span class="emo-val" id="val-surprise">5%</span></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span class="emo-label">Fear</span><div class="emo-track"><div class="emo-fill" id="bar-fear" style="width:3%;background:#D85A30;"></div></div><span class="emo-val" id="val-fear">3%</span></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span class="emo-label">Sad</span><div class="emo-track"><div class="emo-fill" id="bar-sad" style="width:2%;background:#D4537E;"></div></div><span class="emo-val" id="val-sad">2%</span></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span class="emo-label">Angry</span><div class="emo-track"><div class="emo-fill" id="bar-angry" style="width:1%;background:#A32D2D;"></div></div><span class="emo-val" id="val-angry">1%</span></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span class="emo-label">Disgust</span><div class="emo-track"><div class="emo-fill" id="bar-disgust" style="width:1%;background:#888780;"></div></div><span class="emo-val" id="val-disgust">1%</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <p style="font-size:13px; font-weight:500; margin:0 0 .875rem; color:var(--color-text-primary);">MediaPipe signals</p>
+      <div id="signals">
+        <div class="signal-row"><span><span class="dot" style="background:#1D9E75;"></span>Eye gaze on camera</span><span style="font-weight:500;font-size:13px;" id="sig-gaze">87%</span></div>
+        <div class="signal-row"><span><span class="dot" style="background:#378ADD;"></span>Head pose stability</span><span style="font-weight:500;font-size:13px;" id="sig-head">0.82</span></div>
+        <div class="signal-row"><span><span class="dot" style="background:#EF9F27;"></span>Blink rate</span><span style="font-weight:500;font-size:13px;" id="sig-blink">14 / min</span></div>
+        <div class="signal-row"><span><span class="dot" style="background:#D85A30;"></span>Head yaw variance</span><span style="font-weight:500;font-size:13px;" id="sig-yaw">±4°</span></div>
+        <div class="signal-row"><span><span class="dot" style="background:#534AB7;"></span>CNN-LSTM trajectory</span><span style="font-weight:500;font-size:13px;" id="sig-lstm">0.78</span></div>
+      </div>
+
+      <div style="margin-top:1rem; padding-top:.875rem; border-top:0.5px solid var(--color-border-tertiary);">
+        <p style="font-size:12px; color:var(--color-text-secondary); margin:0 0 8px;">Score formula weights</p>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <span style="font-size:11px; padding:2px 7px; border-radius:var(--border-radius-md); background:var(--color-background-success); color:var(--color-text-success);">Emotion ×0.30</span>
+          <span style="font-size:11px; padding:2px 7px; border-radius:var(--border-radius-md); background:var(--color-background-info); color:var(--color-text-info);">Gaze ×0.30</span>
+          <span style="font-size:11px; padding:2px 7px; border-radius:var(--border-radius-md); background:var(--color-background-secondary); color:var(--color-text-secondary);">Head ×0.20</span>
+          <span style="font-size:11px; padding:2px 7px; border-radius:var(--border-radius-md); background:var(--color-background-warning); color:var(--color-text-warning);">Blink ×0.10</span>
+          <span style="font-size:11px; padding:2px 7px; border-radius:var(--border-radius-md); background:var(--color-background-secondary); color:var(--color-text-secondary);">LSTM ×0.10</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p style="font-size:13px; font-weight:500; margin:0 0 .75rem; color:var(--color-text-primary);">Engagement timeline — 30s session <span style="font-size:11px; font-weight:400; color:var(--color-text-secondary); margin-left:6px;" id="frame-indicator">frame 0 / 30</span></p>
+    <div style="display:flex; align-items:flex-end; gap:3px; height:72px; padding-bottom:4px;" id="timeline">
+    </div>
+    <div style="display:flex; gap:16px; margin-top:8px; font-size:11px; color:var(--color-text-secondary);">
+      <span><span class="dot" style="background:#1D9E75; width:8px; height:8px;"></span> Engaged (≥70)</span>
+      <span><span class="dot" style="background:#EF9F27; width:8px; height:8px;"></span> Moderate (40–69)</span>
+      <span><span class="dot" style="background:#D85A30; width:8px; height:8px;"></span> Disengaged (&lt;40)</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const scenarios = {
+  confident: {
+    emotions: {neutral:76,happy:12,surprise:5,fear:3,sad:2,angry:1,disgust:1},
+    gaze:87, head:0.82, blink:14, yaw:4, lstm:0.78,
+    timeline: [72,75,78,74,80,82,79,77,81,83,84,80,78,82,85,83,81,84,86,84,82,85,87,83,81,84,82,80,78,77]
+  },
+  anxious: {
+    emotions: {fear:42,neutral:28,sad:14,surprise:8,happy:4,angry:2,disgust:2},
+    gaze:54, head:0.41, blink:31, yaw:14, lstm:0.32,
+    timeline: [55,50,48,44,46,38,34,36,32,30,34,29,27,30,28,25,27,24,22,25,23,20,24,22,19,21,18,20,18,17]
+  },
+  disengaged: {
+    emotions: {neutral:48,sad:22,disgust:12,angry:8,fear:5,happy:3,surprise:2},
+    gaze:31, head:0.28, blink:22, yaw:18, lstm:0.21,
+    timeline: [45,42,38,35,40,32,28,30,25,22,27,24,20,22,18,20,16,18,14,17,15,12,14,11,13,10,12,9,11,10]
+  },
+  decline: {
+    emotions: {neutral:55,fear:20,sad:12,happy:7,surprise:4,angry:1,disgust:1},
+    gaze:62, head:0.55, blink:22, yaw:9, lstm:0.44,
+    timeline: [82,80,78,81,79,77,74,72,70,68,65,62,60,58,55,52,50,47,44,42,40,37,34,32,30,27,25,24,22,20]
+  }
+};
+
+const emotionMap = {neutral:1.0,happy:0.9,surprise:0.6,sad:0.3,fear:0.2,angry:0.2,disgust:0.1};
+let currentScenario = 'confident';
+let playing = false;
+let playInterval = null;
+let currentFrame = 30;
+
+function barColor(score) {
+  if (score >= 70) return '#1D9E75';
+  if (score >= 40) return '#EF9F27';
+  return '#D85A30';
+}
+
+function buildTimeline(data, upTo) {
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = '';
+  data.forEach((v, i) => {
+    const bar = document.createElement('div');
+    bar.className = 'timeline-bar';
+    const h = Math.round((v / 100) * 64);
+    bar.style.height = (i < upTo ? h : 0) + 'px';
+    bar.style.width = '100%';
+    bar.style.flex = '1';
+    bar.style.background = i < upTo ? barColor(v) : 'var(--color-background-secondary)';
+    bar.style.opacity = i < upTo ? '1' : '0.3';
+    tl.appendChild(bar);
+  });
+}
+
+function computeEngagement(sc, emotions) {
+  const avgEmo = Object.entries(emotions).reduce((s,[k,v]) => s + (emotionMap[k]||0.5)*(v/100), 0);
+  const blinkPenalty = Math.max(0, (sc.blink - 25) * 0.01);
+  const score = 0.30*avgEmo + 0.30*(sc.gaze/100) + 0.20*sc.head + 0.10*Math.max(0,1-blinkPenalty) + 0.10*sc.lstm;
+  return Math.round(score * 100);
+}
+
+function computeConfidence(emotions) {
+  const pos = ['neutral','happy'];
+  const neg = ['fear','sad','angry','disgust'];
+  const posRatio = pos.reduce((s,k) => s + (emotions[k]||0)/100, 0);
+  const negRatio = neg.reduce((s,k) => s + (emotions[k]||0)/100, 0);
+  let conf = posRatio;
+  if (negRatio > 0.4) conf *= 0.7;
+  return Math.round(conf * 100);
+}
+
+function dominantEmotion(emotions) {
+  return Object.entries(emotions).sort((a,b)=>b[1]-a[1])[0][0];
+}
+
+function sentimentLabel(dom) {
+  if (['neutral','happy'].includes(dom)) return ['Positive signal','var(--color-background-success)','var(--color-text-success)'];
+  if (['surprise'].includes(dom)) return ['Neutral signal','var(--color-background-warning)','var(--color-text-warning)'];
+  return ['Negative signal','var(--color-background-danger)','var(--color-text-danger)'];
+}
+
+function engColor(v) {
+  if (v >= 70) return '#1D9E75';
+  if (v >= 40) return '#EF9F27';
+  return '#D85A30';
+}
+
+function render(sc, frame) {
+  const s = scenarios[sc];
+  const emo = s.emotions;
+
+  Object.keys(emo).forEach(k => {
+    const b = document.getElementById('bar-'+k);
+    const v = document.getElementById('val-'+k);
+    if (b) { b.style.width = emo[k]+'%'; }
+    if (v) { v.textContent = emo[k]+'%'; }
+  });
+
+  const dom = dominantEmotion(emo);
+  const eng = computeEngagement(s, emo);
+  const conf = computeConfidence(emo);
+  const [lbl, bg, fg] = sentimentLabel(dom);
+
+  document.getElementById('eng-score').textContent = eng;
+  document.getElementById('eng-score').style.color = engColor(eng);
+  document.getElementById('conf-score').textContent = conf;
+  document.getElementById('conf-score').style.color = engColor(conf);
+  document.getElementById('dom-emo').textContent = dom.charAt(0).toUpperCase()+dom.slice(1);
+  const badge = document.getElementById('dom-badge');
+  badge.textContent = lbl; badge.style.background = bg; badge.style.color = fg;
+
+  document.getElementById('blink-num').textContent = s.blink;
+  const blinkNote = document.getElementById('blink-num').nextElementSibling;
+  if (blinkNote) blinkNote.textContent = s.blink > 25 ? 'per min · anxiety flag' : 'per min · normal';
+  document.getElementById('sig-gaze').textContent = s.gaze+'%';
+  document.getElementById('sig-head').textContent = s.head.toFixed(2);
+  document.getElementById('sig-blink').textContent = s.blink+' / min';
+  document.getElementById('sig-yaw').textContent = '±'+s.yaw+'°';
+  document.getElementById('sig-lstm').textContent = s.lstm.toFixed(2);
+
+  const f = Math.min(frame, 30);
+  document.getElementById('frame-indicator').textContent = 'frame '+f+' / 30';
+  buildTimeline(s.timeline, f);
+}
+
+function setScenario(name) {
+  currentScenario = name;
+  currentFrame = 30;
+  playing = false;
+  clearInterval(playInterval);
+  document.getElementById('play-btn').innerHTML = '<i class="ti ti-player-play" aria-hidden="true"></i> Play session';
+  document.querySelectorAll('.state-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-'+name).classList.add('active');
+  render(name, 30);
+}
+
+function togglePlay() {
+  if (playing) {
+    playing = false;
+    clearInterval(playInterval);
+    document.getElementById('play-btn').innerHTML = '<i class="ti ti-player-play" aria-hidden="true"></i> Play session';
+    return;
+  }
+  playing = true;
+  currentFrame = 0;
+  document.getElementById('play-btn').innerHTML = '<i class="ti ti-player-pause" aria-hidden="true"></i> Pause';
+  render(currentScenario, 0);
+  playInterval = setInterval(() => {
+    currentFrame++;
+    render(currentScenario, currentFrame);
+    if (currentFrame >= 30) {
+      clearInterval(playInterval);
+      playing = false;
+      document.getElementById('play-btn').innerHTML = '<i class="ti ti-player-play" aria-hidden="true"></i> Play session';
+    }
+  }, 260);
+}
+
+render('confident', 30);
+// ============================================
+// Face Analysis API Integration
+// ============================================
+
+let currentJobId = null;
+let jobCheckInterval = null;
+
+function getApiUrl() {
+    return document.getElementById('api-url').value;
+}
+
+function setApiStatus(text, color) {
+    const el = document.getElementById('api-status');
+    if (el) {
+        el.querySelector('.dot').style.background = color || '#666';
+        el.childNodes[1].textContent = text;
+    }
+}
+
+function checkAPIHealth() {
+    fetch(getApiUrl() + '/api/v1/health')
+        .then(response => response.json())
+        .then(data => {
+            setApiStatus('Healthy - Queue: ' + data.pending_jobs, '#1D9E75');
+            alert('API is healthy! Active: ' + data.active_jobs + ', Pending: ' + data.pending_jobs);
+        })
+        .catch(err => {
+            setApiStatus('Error - Not reachable', '#D85A30');
+            alert('Cannot reach API: ' + err.message);
+        });
+}
+
+function analyzeVideo() {
+    submitAnalysis(false);
+}
+
+function analyzeVideoAsync() {
+    submitAnalysis(true);
+}
+
+function submitAnalysis(asyncMode) {
+    const url = getApiUrl();
+    const endpoint = asyncMode ? '/api/v1/analyze/async' : '/api/v1/analyze';
+    
+    setApiStatus(asyncMode ? 'Submitting async job...' : 'Analyzing...', '#378ADD');
+    
+    fetch(url + endpoint, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+            'Accept': 'application/json',
+        }
+    })
+    .then(response => {
+        if (response.status === 404) {
+            throw new Error('API endpoint not found');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (asyncMode) {
+            currentJobId = data.job_id;
+            document.getElementById('job-status').style.display = 'inline';
+            document.getElementById('job-status-text').textContent = data.status;
+            setApiStatus('Job submitted: ' + data.status, '#EF9F27');
+            startJobPolling();
+        } else {
+            setApiStatus('Analysis complete', '#1D9E75');
+            updateDisplayWithResults(data);
+        }
+    })
+    .catch(err => {
+        setApiStatus('Error', '#D85A30');
+        alert('Error: ' + err.message + '. Server must be running on ' + url + '');
+    });
+}
+
+function startJobPolling() {
+    if (jobCheckInterval) clearInterval(jobCheckInterval);
+    jobCheckInterval = setInterval(fetchJobStatus, 2000);
+}
+
+function fetchJobStatus() {
+    if (!currentJobId) return;
+    
+    fetch(getApiUrl() + '/api/v1/analyze/jobs/' + currentJobId)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('job-status-text').textContent = data.status;
+            
+            if (data.status === 'completed') {
+                clearInterval(jobCheckInterval);
+                setApiStatus('Job completed', '#1D9E75');
+                updateDisplayWithResults(data.result);
+            } else if (data.status === 'failed') {
+                clearInterval(jobCheckInterval);
+                setApiStatus('Job failed', '#D85A30');
+                alert('Job failed: ' + (data.error || 'Unknown error'));
+            } else if (data.status === 'pending') {
+                setApiStatus('Processing (pending)', '#EF9F27');
+            } else if (data.status === 'processing') {
+                setApiStatus('Processing...', '#378ADD');
+            }
+        })
+        .catch(err => {
+            console.error('Error fetching job status:', err);
+        });
+}
+
+function updateDisplayWithResults(data) {
+    if (!data || !data.timeline) return;
+    
+    const timeline = data.timeline;
+    if (timeline.length === 0) return;
+    
+    const emotionCounts = {};
+    timeline.forEach(entry => {
+        if (entry.emotion && entry.emotion !== 'NoFace') {
+            const emo = entry.emotion.toLowerCase();
+            emotionCounts[emo] = (emotionCounts[emo] || 0) + 1;
+        }
+    });
+    
+    const total = Object.values(emotionCounts).reduce((a, b) => a + b, 0) || 1;
+    const emotions = ['neutral', 'happy', 'surprise', 'fear', 'sad', 'angry', 'disgust'];
+    
+    emotions.forEach(emo => {
+        const bar = document.getElementById('bar-' + emo);
+        const val = document.getElementById('val-' + emo);
+        if (bar && val) {
+            const pct = Math.round((emotionCounts[emo] || 0) / total * 100);
+            bar.style.width = pct + '%';
+            val.textContent = pct + '%';
+        }
+    });
+    
+    if (data.summary) {
+        document.getElementById('eng-score').textContent = Math.round(data.confidence_score || 0);
+        document.getElementById('eng-score').style.color = (data.confidence_score >= 70) ? '#1D9E75' : (data.confidence_score >= 40) ? '#EF9F27' : '#D85A30';
+        
+        let dominant = 'neutral';
+        let maxCount = 0;
+        Object.entries(emotionCounts).forEach(([emo, count]) => {
+            if (count > maxCount) {
+                maxCount = count;
+                dominant = emo;
+            }
+        });
+        
+        document.getElementById('dom-emo').textContent = dominant.charAt(0).toUpperCase() + dominant.slice(1);
+    }
+    
+    if (timeline.length > 0) {
+        buildTimeline(timeline.map(t => (t.emotion_confidence || 0) * 100), timeline.length);
+    }
+}
+
+// ============================================
+
+</script>

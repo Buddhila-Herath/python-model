@@ -7,7 +7,7 @@ import numpy as np
 
 @dataclass
 class FrameData:
-    time_sec: int
+    time_sec: float
     frame: np.ndarray
 
 
@@ -37,7 +37,7 @@ class VideoProcessor:
                     break
 
                 if frame_index % frame_step == 0:
-                    time_sec = int(frame_index / source_fps)
+                    time_sec = round(frame_index / source_fps, 2)
                     yield FrameData(time_sec=time_sec, frame=frame)
 
                 frame_index += 1

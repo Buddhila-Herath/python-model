@@ -47,7 +47,7 @@ class EmotionDetector:
         labels = self._labels_from_model()
 
         if isinstance(prediction, str):
-            return prediction.title(), 1.0
+            return self._normalize_emotion(prediction), 1.0
 
         if isinstance(prediction, dict):
             emotion = prediction.get("emotion") or prediction.get("label")
@@ -130,8 +130,7 @@ class EmotionDetector:
     def _normalize_emotion(emotion: Any) -> str:
         if emotion is None:
             return "Unknown"
-        canonical = canonical_emotion_label(str(emotion))
-        return canonical.title()
+        return canonical_emotion_label(str(emotion))
 
     @staticmethod
     def _normalize_confidence(confidence: Any) -> float:
@@ -143,8 +142,5 @@ class EmotionDetector:
         except (TypeError, ValueError):
             return 1.0
 
-        if value < 0:
-            return 0.0
-        if value > 1:
-            return 1.0
+        value = max(0.0, min(1.0, value))
         return value

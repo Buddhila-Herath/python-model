@@ -1,0 +1,35 @@
+{
+  "info": {
+    "name": "Face Analysis API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": "http://localhost:8000/api/v1/health"
+      }
+    },
+    {
+      "name": "Sync Video Analysis",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata"
+        },
+        "url": "http://localhost:8000/api/v1/analyze?include_timeline=true"
+      }
+    },
+    {
+      "name": "Async Video Analysis",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata"
+        },
+        "url": "http://localhost:8000/api/v1/analyze/async"
+      }
+    }
+  ]
+}

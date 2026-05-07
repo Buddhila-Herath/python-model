@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Optional
 
 
 class AnalyzePathRequest(BaseModel):
@@ -9,7 +9,7 @@ class AnalyzePathRequest(BaseModel):
 class TimelineItem(BaseModel):
     time: int
     emotion: str
-    emotion_confidence: float
+    emotion_confidence: Optional[float] = None
 
 
 class SummaryResponse(BaseModel):
@@ -22,6 +22,7 @@ class AnalyzeResponse(BaseModel):
     timeline: list[TimelineItem] | None = None
     summary: SummaryResponse
     confidence_score: float
+    engagement_score: float
     truncated: bool = False
 
 

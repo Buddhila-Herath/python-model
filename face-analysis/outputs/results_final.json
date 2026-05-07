@@ -1,0 +1,58 @@
+{
+  "timeline": [
+    {
+      "time": 0.0,
+      "emotion": "neutral",
+      "emotion_confidence": null,
+      "valid": true
+    },
+    {
+      "time": 1.0,
+      "emotion": "neutral",
+      "emotion_confidence": null,
+      "valid": true
+    },
+    {
+      "time": 2.0,
+      "emotion": "neutral",
+      "emotion_confidence": null,
+      "valid": true
+    },
+    {
+      "time": 3.0,
+      "emotion": "neutral",
+      "emotion_confidence": null,
+      "valid": true
+    },
+    {
+      "time": 4.0,
+      "emotion": "neutral",
+      "emotion_confidence": null,
+      "valid": true
+    },
+    {
+      "time": 5.0,
+      "emotion": "neutral",
+      "emotion_confidence": null,
+      "valid": true
+    },
+    {
+      "time": 6.0,
+      "emotion": "neutral",
+      "emotion_confidence": null,
+      "valid": true
+    },
+    {
+      "time": 7.0,
+      "emotion": "neutral",
+      "emotion_confidence": null,
+      "valid": true
+    }
+  ],
+  "confidence_score": 60.0,
+  "summary": {
+    "positive_ratio": 0.0,
+    "neutral_ratio": 1.0,
+    "negative_ratio": 0.0
+  }
+}

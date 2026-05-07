@@ -267,6 +267,7 @@ def _project_result(
     projected = {
         "summary": result.get("summary"),
         "confidence_score": result.get("confidence_score"),
+        "engagement_score": result.get("engagement_score"),
         "truncated": False,
     }
 

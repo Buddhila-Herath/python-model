@@ -1,0 +1,58 @@
+{
+  "timeline": [
+    {
+      "time": 0,
+      "emotion": "surprise",
+      "emotion_confidence": 0.5592,
+      "valid": true
+    },
+    {
+      "time": 1,
+      "emotion": "surprise",
+      "emotion_confidence": 0.3369,
+      "valid": true
+    },
+    {
+      "time": 2,
+      "emotion": "neutral",
+      "emotion_confidence": 0.2528,
+      "valid": true
+    },
+    {
+      "time": 3,
+      "emotion": "surprise",
+      "emotion_confidence": 0.2697,
+      "valid": true
+    },
+    {
+      "time": 4,
+      "emotion": "happy",
+      "emotion_confidence": 0.2828,
+      "valid": true
+    },
+    {
+      "time": 5,
+      "emotion": "neutral",
+      "emotion_confidence": 0.4474,
+      "valid": true
+    },
+    {
+      "time": 6,
+      "emotion": "happy",
+      "emotion_confidence": 0.3452,
+      "valid": true
+    },
+    {
+      "time": 7,
+      "emotion": "happy",
+      "emotion_confidence": 0.9068,
+      "valid": true
+    }
+  ],
+  "confidence_score": 90.0,
+  "summary": {
+    "positive_ratio": 0.75,
+    "neutral_ratio": 0.25,
+    "negative_ratio": 0.0
+  }
+}
