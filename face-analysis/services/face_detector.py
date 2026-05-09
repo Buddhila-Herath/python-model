@@ -28,9 +28,11 @@ class FaceDetector:
         self,
         min_detection_confidence: float = 0.5,
         padding_ratio: float = 0.1,
+        blur_threshold: float = 80.0,
         debug: bool = False,
     ) -> None:
         self.padding_ratio = padding_ratio
+        self.blur_threshold = blur_threshold
         self._mode = "solutions"
         self._detector: Any = None
         self._min_detection_confidence = min_detection_confidence
@@ -75,6 +77,10 @@ class FaceDetector:
     def detect_largest_face(self, frame_bgr: np.ndarray) -> Optional[BBox]:
         h, w = frame_bgr.shape[:2]
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+        # ─────────────────────────────────────────────────────────────
+        # MediaPipe Solutions API
+        # ─────────────────────────────────────────────────────────────
         if self._mode == "solutions":
             results = self._detector.process(frame_rgb)
 
@@ -104,22 +110,30 @@ class FaceDetector:
                     continue
 
                 area = (x2 - x1) * (y2 - y1)
+
                 if area > best_area:
                     best_area = area
                     best_bbox = (x1, y1, x2, y2)
 
             return best_bbox
 
+        # ─────────────────────────────────────────────────────────────
+        # MediaPipe Tasks API
+        # ─────────────────────────────────────────────────────────────
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+
         results = self._detector.detect(mp_image)
         detections = getattr(results, "detections", None)
+
         if not detections:
             return None
 
         best_bbox = None
         best_area = 0
+
         for detection in detections:
             box = detection.bounding_box
+
             x1 = max(int(box.origin_x), 0)
             y1 = max(int(box.origin_y), 0)
             bw = max(int(box.width), 0)
@@ -137,13 +151,19 @@ class FaceDetector:
                 continue
 
             area = (x2 - x1) * (y2 - y1)
+
             if area > best_area:
                 best_area = area
                 best_bbox = (x1, y1, x2, y2)
 
         return best_bbox
 
-    def crop_face(self, frame_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+    def crop_face(
+        self,
+        frame_bgr: np.ndarray,
+        bbox: BBox,
+    ) -> Optional[np.ndarray]:
+
         h, w = frame_bgr.shape[:2]
         x1, y1, x2, y2 = bbox
 
@@ -167,14 +187,60 @@ class FaceDetector:
             return None
 
         face = frame_bgr[y1:y2, x1:x2]
+
         if face.size == 0:
             return None
+
         return face
 
-    def detect_and_crop(self, frame_bgr: np.ndarray) -> Optional[np.ndarray]:
+    def is_blurry(
+        self,
+        image: np.ndarray,
+    ) -> bool:
+        """
+        Blur detection using variance of Laplacian.
+
+        Lower variance = blurrier image.
+        """
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        variance = cv2.Laplacian(
+            gray,
+            cv2.CV_64F,
+        ).var()
+
+        if self._debug:
+            print(f"Blur variance: {variance:.2f}")
+
+        return variance < self.blur_threshold
+
+    def detect_and_crop(
+        self,
+        frame_bgr: np.ndarray,
+    ) -> Optional[np.ndarray]:
+
         bbox = self.detect_largest_face(frame_bgr)
+
         if bbox is None:
             return None
+
         if self._debug:
             print(f"Detected bbox: {bbox}")
-        return self.crop_face(frame_bgr, bbox)
+
+        face = self.crop_face(frame_bgr, bbox)
+
+        if face is None:
+            return None
+
+        # ─────────────────────────────────────────────────────────────
+        # Blur filtering
+        # Reject blurry / low-quality face crops
+        # ─────────────────────────────────────────────────────────────
+        if self.is_blurry(face):
+
+            if self._debug:
+                print("Skipped blurry face")
+
+            return None
+
+        return face
