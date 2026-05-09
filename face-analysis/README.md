@@ -1,14 +1,15 @@
 # Face Analysis (CLI + FastAPI)
 
-This project analyzes a video and produces a per-second facial emotion timeline, summary ratios, and a final confidence score.
+This project analyzes a video and produces a per-second facial emotion timeline, summary ratios, a final confidence score, and an engagement score.
 
 It is fully local (CPU), command-line based, and built with:
 
 - OpenCV for video decoding
 - MediaPipe for face detection
 - hsemotion-onnx for emotion inference
+- Gaze, head pose, and blink analysis for engagement scoring
 
-It also includes a FastAPI backend with sync and async processing endpoints.
+It also includes a FastAPI backend with sync and async processing endpoints for video uploads.
 
 ## What This System Does
 
@@ -21,7 +22,8 @@ Given a video file, the pipeline:
 5. Predicts emotion and confidence for the cropped face.
 6. Applies temporal smoothing to reduce jitter.
 7. Computes a final confidence score from the smoothed timeline.
-8. Writes JSON output to disk and prints it to console.
+8. Computes an engagement score from emotion, gaze, head stability, and blink signals.
+9. Writes JSON output to disk and prints it to console.
 
 ## End-to-End Flow
 
@@ -72,6 +74,8 @@ face-analysis/
     video_processor.py
     face_detector.py
     emotion_detector.py
+    gaze_head_analyser.py
+    blink_sampler.py
     scoring.py
 ```
 
@@ -93,6 +97,8 @@ face-analysis/
   - `neutral_ratio`
   - `negative_ratio`
 - Keeps core ML pipeline reusable and centralized.
+- Computes `confidence_score` and `engagement_score`.
+- Marks frames without a detected face as `NoFace` / `valid: false` internally before filtering them out of the summary and score calculations.
 
 ### api/app.py
 
@@ -111,6 +117,8 @@ face-analysis/
 - Request controls:
   - `include_timeline` (default true)
   - `max_entries` (optional timeline truncation)
+- Uploads are accepted as `multipart/form-data` with a `file` field.
+- JSON `video_path` support is disabled by default in the current build.
 
 ### api/job_store.py
 
@@ -155,6 +163,7 @@ face-analysis/
 - Normalizes output to canonical labels before storing in timeline:
   - `emotion` as title-cased string
   - `emotion_confidence` in range [0, 1]
+- This repo uses the inference wrapper only; training or fine-tuning requires a separate PyTorch workflow.
 
 ## Model Details
 
@@ -273,6 +282,32 @@ python main.py --video path/to/video.mp4 --output outputs/results.json --debug
 
 In debug mode, raw model predictions are printed to terminal as `Raw preds: ...` for easier label inspection.
 
+### Run the API
+
+Start the FastAPI server with Uvicorn:
+
+```bash
+uvicorn api.app:app --reload
+```
+
+Health check:
+
+```bash
+GET http://localhost:8000/api/v1/health
+```
+
+Analyze a video upload:
+
+```bash
+POST http://localhost:8000/api/v1/analyze
+```
+
+Analyze asynchronously:
+
+```bash
+POST http://localhost:8000/api/v1/analyze/async
+```
+
 ## Output JSON Schema
 
 CLI output:
@@ -296,7 +331,8 @@ CLI output:
     "neutral_ratio": 0.8,
     "negative_ratio": 0.1
   },
-  "confidence_score": 50.0
+  "confidence_score": 50.0,
+  "engagement_score": 61.25
 }
 ```
 
@@ -318,6 +354,9 @@ Base path: `/api/v1`
 - Query params:
   - `include_timeline` (bool, default true)
   - `max_entries` (int, optional)
+- Supported input extensions: `.mp4`, `.avi`, `.mov`
+- Maximum upload size: `200MB`
+- Rate limit: `20 requests / 60 seconds` per IP
 
 ### Async analyze response
 
@@ -400,8 +439,11 @@ Common codes:
   - FIFO scheduling
 - Max job runtime: `300` seconds
 - TTL cleanup for completed/failed jobs: `15` minutes
+- Note: MIME check is a practical first filter and can be spoofed; stricter production validation can add magic-byte inspection.
 
-Note: MIME check is a practical first filter and can be spoofed; stricter production validation can add magic-byte inspection.
+## Sample Video Helper
+
+`create_sample_video.py` generates a small synthetic demo clip named `sample_face.mp4` using the classic Lena image and simple motion. It is useful for quick local testing when you do not want to use a real video file yet.
 
 ## Run API
 
@@ -438,7 +480,7 @@ Coverage:
 Use this to run a complete validation pass in the project virtual environment:
 
 ```bash
-Set-Location "c:\Users\buddh\Desktop\New folder\face-analysis"
+Set-Location "c:\Users\buddh\Desktop\research repo\face-analysis"
 ..\.venv\Scripts\python.exe main.py --video "videos/Video_Generation_From_Description.mp4" --output "outputs/final_validation_cli.json"
 ```
 
