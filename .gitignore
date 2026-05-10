@@ -32,7 +32,6 @@ Thumbs.db
 
 # Project-generated files
 face-analysis/outputs/results.json
-face-analysis/.models/
 face-analysis/sample_face.mp4
 face-analysis/lena.jpg
 face-analysis/create_sample_video.py
